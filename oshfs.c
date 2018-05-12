@@ -8,8 +8,8 @@
  */
 #define _OSH_FS_VERSION 2147483647
 #define FUSE_USE_VERSION 26
-#define QAQ
-#ifdef QAQ
+#define HACK
+#ifdef HACK
 #define OFFSET_QAQ 100
 #define malloc mymalloc
 #define realloc myrealloc
@@ -33,9 +33,9 @@ struct filenode
 };
 
 static const size_t size = 4 * 1024 * 1024 * (size_t)1024;
-static void *mem[64 * 1024];
+static void *mem[1024];
 
-#ifdef QAQ
+#ifdef HACK
 void *mymalloc(size_t sz)
 {
 	size_t blocknr = sizeof(mem) / sizeof(mem[0]);
@@ -48,16 +48,34 @@ void *mymalloc(size_t sz)
 }
 void myfree(void *ptr)
 {
+	size_t blocknr = sizeof(mem) / sizeof(mem[0]);
+	size_t blocksize = size / blocknr;
 	return;
 }
 void *myrealloc(void *ptr, size_t sz)
 {
 	size_t blocknr = sizeof(mem) / sizeof(mem[0]);
 	size_t blocksize = size / blocknr;
-	void *qwq = mymalloc(sz);
-	//memcpy(qwq, ptr, MIN(sz, *((size_t *)((char *)ptr - blocksize + OFFSET_QAQ))));
-	myfree(ptr);
-	return qwq;
+	size_t *psz = (size_t *)((char *)ptr - blocksize + OFFSET_QAQ);
+	if(ptr==NULL || sz/blocksize>(*psz)/blocksize)
+	{
+		if(ptr==NULL || (*((size_t *)(ptr + blocksize*((*psz)/blocksize+1) + OFFSET_QAQ))) != 0)
+		{
+			void *qwq = mymalloc(sz);
+			memcpy(qwq, ptr, ptr==NULL?0:*psz); 
+			myfree(ptr);
+			return qwq;
+		}
+		else
+		{
+			*psz = sz;
+			return ptr;
+		}
+	}
+	else
+	{
+		return ptr;
+	}
 }
 #endif
 
