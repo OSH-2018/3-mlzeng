@@ -15,7 +15,10 @@
 #define realloc myrealloc
 #define free myfree
 #endif
+#define DEBUG
+#undef DEBUG
 #include <string.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
 #include <fuse.h>
@@ -33,27 +36,61 @@ struct filenode
 };
 
 static const size_t size = 4 * 1024 * 1024 * (size_t)1024;
-static void *mem[1024];
+static void *mem[64 * 1024];
 
 #ifdef HACK
 void *mymalloc(size_t sz)
 {
+#ifdef DEBUG
+	printf("malloc: %lu\n", sz);
+#endif
 	size_t blocknr = sizeof(mem) / sizeof(mem[0]);
 	size_t blocksize = size / blocknr;
 	size_t p = 0, b;
-	while ((b = *((size_t *)((char *)mem[p] + OFFSET_QAQ))) != 0)
+	while ((b = *((size_t *)((char *)mem[p] + OFFSET_QAQ))) != 0 && (*((size_t *)((char *)mem[p] + OFFSET_QAQ * 2)) == 0 || b/blocksize < sz/blocksize))
 		p += b / blocksize + 2;
+	if(p + sz / blocksize + 2 >= blocknr) 
+	{
+#ifdef DEBUG
+		printf("failed: QAQ\n");
+#endif
+		return NULL; //no enough space now
+	}
+	if(b)
+	{
+		*((size_t *)((char *)mem[p] + OFFSET_QAQ * 2)) = 0;
+		/*
+		if(b/blocksize > sz/blocksize)
+		{
+			*((size_t *)((char *)mem[p + sz / blocksize + 2] + OFFSET_QAQ)) = (b/blocksize - sz/blocksize - 2)*blocksize;
+			*((size_t *)((char *)mem[p + sz / blocksize + 2] + OFFSET_QAQ * 2)) = 1;
+		}
+		*/
+	}
 	*((size_t *)((char *)mem[p] + OFFSET_QAQ)) = sz;
+#ifdef DEBUG
+	printf("success: %p\n", mem[p + 1]);
+#endif
 	return mem[p + 1];
 }
 void myfree(void *ptr)
 {
+#ifdef DEBUG
+	printf("free: %p\n", ptr);
+#endif
 	size_t blocknr = sizeof(mem) / sizeof(mem[0]);
 	size_t blocksize = size / blocknr;
+	if(ptr!=NULL)
+	{
+		*((size_t *)((char *)ptr - blocksize + OFFSET_QAQ * 2)) = 1; // deleted mark
+	}
 	return;
 }
 void *myrealloc(void *ptr, size_t sz)
 {
+#ifdef DEBUG
+	printf("realloc: %p %lu\n", ptr, sz);
+#endif
 	size_t blocknr = sizeof(mem) / sizeof(mem[0]);
 	size_t blocksize = size / blocknr;
 	size_t *psz = (size_t *)((char *)ptr - blocksize + OFFSET_QAQ);
@@ -106,10 +143,19 @@ static void create_filenode(const char *filename, const struct stat *st)
 	root = new;
 }
 
+static void delete_filenode(struct filenode *fn)
+{
+	myfree(fn->filename);
+	myfree(fn->content);
+	myfree(fn->st);
+	myfree(fn);
+}
+
 static void *oshfs_init(struct fuse_conn_info *conn)
 {
 	size_t blocknr = sizeof(mem) / sizeof(mem[0]);
 	size_t blocksize = size / blocknr;
+	//demo2
 	mem[0] = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 	for (int i = 0; i < blocknr; i++)
 	{
@@ -199,7 +245,26 @@ static int oshfs_read(const char *path, char *buf, size_t size, off_t offset, st
 
 static int oshfs_unlink(const char *path)
 {
-	// Not Implemented
+	struct filenode *node = root;
+	if (node == NULL) return 0;
+	if (strcmp(node->filename, path + 1) == 0)
+	{
+		root=node->next;
+		delete_filenode(node);
+		return 0;
+	}
+	while (node->next)
+	{
+		if (strcmp(node->next->filename, path + 1) != 0)
+			node = node->next;
+		else
+		{
+			struct filenode *ptr = node->next;
+			node->next=node->next->next;
+			delete_filenode(ptr);
+			return 0;
+		}
+	}
 	return 0;
 }
 
