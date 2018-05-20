@@ -24,8 +24,8 @@
 #include <fuse.h>
 #include <sys/mman.h>
 
-#define MAX(a,b) ((a)>(b)?(a):(b))
-#define MIN(a,b) ((a)>(b)?(b):(a))
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
+#define MIN(a, b) ((a) > (b) ? (b) : (a))
 
 struct filenode
 {
@@ -36,7 +36,7 @@ struct filenode
 };
 
 static const size_t size = 4 * 1024 * 1024 * (size_t)1024;
-static void *mem[64 * 1024];
+static void *mem[64 * 1024]; // 所有东西都存在这里面 QAQ
 
 #ifdef HACK
 void *mymalloc(size_t sz)
@@ -47,16 +47,16 @@ void *mymalloc(size_t sz)
 	size_t blocknr = sizeof(mem) / sizeof(mem[0]);
 	size_t blocksize = size / blocknr;
 	size_t p = 0, b;
-	while ((b = *((size_t *)((char *)mem[p] + OFFSET_QAQ))) != 0 && (*((size_t *)((char *)mem[p] + OFFSET_QAQ * 2)) == 0 || b/blocksize < sz/blocksize))
+	while ((b = *((size_t *)((char *)mem[p] + OFFSET_QAQ))) != 0 && (*((size_t *)((char *)mem[p] + OFFSET_QAQ * 2)) == 0 || b / blocksize < sz / blocksize))
 		p += b / blocksize + 2;
-	if(p + sz / blocksize + 2 >= blocknr) 
+	if (p + sz / blocksize + 2 >= blocknr)
 	{
 #ifdef DEBUG
 		printf("failed: QAQ\n");
 #endif
 		return NULL; //no enough space now
 	}
-	if(b)
+	if (b)
 	{
 		*((size_t *)((char *)mem[p] + OFFSET_QAQ * 2)) = 0;
 		/*
@@ -67,12 +67,16 @@ void *mymalloc(size_t sz)
 		}
 		*/
 	}
-	*((size_t *)((char *)mem[p] + OFFSET_QAQ)) = sz;
+	else
+	{
+		*((size_t *)((char *)mem[p] + OFFSET_QAQ)) = sz;
+	}
 #ifdef DEBUG
 	printf("success: %p\n", mem[p + 1]);
 #endif
 	return mem[p + 1];
 }
+
 void myfree(void *ptr)
 {
 #ifdef DEBUG
@@ -80,12 +84,13 @@ void myfree(void *ptr)
 #endif
 	size_t blocknr = sizeof(mem) / sizeof(mem[0]);
 	size_t blocksize = size / blocknr;
-	if(ptr!=NULL)
+	if (ptr != NULL)
 	{
 		*((size_t *)((char *)ptr - blocksize + OFFSET_QAQ * 2)) = 1; // deleted mark
 	}
 	return;
 }
+
 void *myrealloc(void *ptr, size_t sz)
 {
 #ifdef DEBUG
@@ -94,12 +99,12 @@ void *myrealloc(void *ptr, size_t sz)
 	size_t blocknr = sizeof(mem) / sizeof(mem[0]);
 	size_t blocksize = size / blocknr;
 	size_t *psz = (size_t *)((char *)ptr - blocksize + OFFSET_QAQ);
-	if(ptr==NULL || sz/blocksize>(*psz)/blocksize)
+	if (ptr == NULL || sz / blocksize > (*psz) / blocksize)
 	{
-		if(ptr==NULL || (*((size_t *)(ptr + blocksize*((*psz)/blocksize+1) + OFFSET_QAQ))) != 0)
+		if (ptr == NULL || (*((size_t *)(ptr + blocksize * ((*psz) / blocksize + 1) + OFFSET_QAQ))) != 0)
 		{
 			void *qwq = mymalloc(sz);
-			memcpy(qwq, ptr, ptr==NULL?0:*psz); 
+			memcpy(qwq, ptr, ptr == NULL ? 0 : *psz);
 			myfree(ptr);
 			return qwq;
 		}
@@ -116,11 +121,11 @@ void *myrealloc(void *ptr, size_t sz)
 }
 #endif
 
-static struct filenode *root = NULL;
 
 static struct filenode *get_filenode(const char *name)
 {
-	struct filenode *node = root;
+	struct filenode **root = (struct filenode **)((char *)mem[0] + OFFSET_QAQ * 3);
+	struct filenode *node = *root;
 	while (node)
 	{
 		if (strcmp(node->filename, name + 1) != 0)
@@ -133,14 +138,15 @@ static struct filenode *get_filenode(const char *name)
 
 static void create_filenode(const char *filename, const struct stat *st)
 {
+	struct filenode **root = (struct filenode **)((char *)mem[0] + OFFSET_QAQ * 3);
 	struct filenode *new = (struct filenode *)malloc(sizeof(struct filenode));
 	new->filename = (char *)malloc(strlen(filename) + 1);
 	memcpy(new->filename, filename, strlen(filename) + 1);
 	new->st = (struct stat *)malloc(sizeof(struct stat));
 	memcpy(new->st, st, sizeof(struct stat));
-	new->next = root;
+	new->next = *root;
 	new->content = NULL;
-	root = new;
+	*root = new;
 }
 
 static void delete_filenode(struct filenode *fn)
@@ -155,13 +161,13 @@ static void *oshfs_init(struct fuse_conn_info *conn)
 {
 	size_t blocknr = sizeof(mem) / sizeof(mem[0]);
 	size_t blocksize = size / blocknr;
-	//demo2
-	mem[0] = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 	for (int i = 0; i < blocknr; i++)
 	{
 		mem[i] = (char *)mem[0] + blocksize * i;
-		memset(mem[i], 0, blocksize);
+		mem[i] = mmap(mem[i], blocksize, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 	}
+	struct filenode **root = (struct filenode **)((char *)mem[0] + OFFSET_QAQ * 3);
+	*root = NULL;
 	return NULL;
 }
 
@@ -187,7 +193,8 @@ static int oshfs_getattr(const char *path, struct stat *stbuf)
 
 static int oshfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offset, struct fuse_file_info *fi)
 {
-	struct filenode *node = root;
+	struct filenode **root = (struct filenode **)((char *)mem[0] + OFFSET_QAQ * 3);
+	struct filenode *node = *root;
 	filler(buf, ".", NULL, 0);
 	filler(buf, "..", NULL, 0);
 	while (node)
@@ -245,11 +252,13 @@ static int oshfs_read(const char *path, char *buf, size_t size, off_t offset, st
 
 static int oshfs_unlink(const char *path)
 {
-	struct filenode *node = root;
-	if (node == NULL) return 0;
+	struct filenode **root = (struct filenode **)((char *)mem[0] + OFFSET_QAQ * 3);
+	struct filenode *node = *root;
+	if (node == NULL)
+		return 0;
 	if (strcmp(node->filename, path + 1) == 0)
 	{
-		root=node->next;
+		*root = node->next;
 		delete_filenode(node);
 		return 0;
 	}
@@ -260,7 +269,7 @@ static int oshfs_unlink(const char *path)
 		else
 		{
 			struct filenode *ptr = node->next;
-			node->next=node->next->next;
+			node->next = node->next->next;
 			delete_filenode(ptr);
 			return 0;
 		}
