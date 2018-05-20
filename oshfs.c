@@ -54,11 +54,11 @@ void *mymalloc(size_t sz)
 #ifdef DEBUG
 		printf("failed: QAQ\n");
 #endif
-		return NULL; //no enough space now
+		return NULL; // no enough space now
 	}
 	if (b)
 	{
-		*((size_t *)((char *)mem[p] + OFFSET_QAQ * 2)) = 0;
+		*((size_t *)((char *)mem[p] + OFFSET_QAQ * 2)) = 0; // overwrite deleted file
 		/*
 		if(b/blocksize > sz/blocksize)
 		{
@@ -69,6 +69,8 @@ void *mymalloc(size_t sz)
 	}
 	else
 	{
+		for(int i = 1; i <= sz / blocksize + 2; i++)
+			mem[p + i] = mmap(mem[p + i], blocksize, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0); // allocate memory
 		*((size_t *)((char *)mem[p] + OFFSET_QAQ)) = sz;
 	}
 #ifdef DEBUG
@@ -87,6 +89,7 @@ void myfree(void *ptr)
 	if (ptr != NULL)
 	{
 		*((size_t *)((char *)ptr - blocksize + OFFSET_QAQ * 2)) = 1; // deleted mark
+		size_t sz = *(size_t *)((char *)ptr - blocksize + OFFSET_QAQ);
 	}
 	return;
 }
@@ -104,12 +107,15 @@ void *myrealloc(void *ptr, size_t sz)
 		if (ptr == NULL || (*((size_t *)(ptr + blocksize * ((*psz) / blocksize + 1) + OFFSET_QAQ))) != 0)
 		{
 			void *qwq = mymalloc(sz);
-			memcpy(qwq, ptr, ptr == NULL ? 0 : *psz);
+			memcpy(qwq, ptr, ptr == NULL ? 0 : *psz); // move memory
 			myfree(ptr);
 			return qwq;
 		}
 		else
 		{
+			int p = (ptr - mem[0]) / blocksize;
+			for (int i = *psz / blocksize + 2; i <= sz / blocksize + 2; i++)
+				mem[p + i] = mmap(mem[p + i], blocksize, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0); // reallocate memory
 			*psz = sz;
 			return ptr;
 		}
@@ -161,11 +167,13 @@ static void *oshfs_init(struct fuse_conn_info *conn)
 {
 	size_t blocknr = sizeof(mem) / sizeof(mem[0]);
 	size_t blocksize = size / blocknr;
+	mem[0] = mmap(NULL, blocksize, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 	for (int i = 0; i < blocknr; i++)
 	{
 		mem[i] = (char *)mem[0] + blocksize * i;
-		mem[i] = mmap(mem[i], blocksize, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 	}
+	mem[1] = mmap(mem[1], blocksize, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	mem[2] = mmap(mem[2], blocksize, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 	struct filenode **root = (struct filenode **)((char *)mem[0] + OFFSET_QAQ * 3);
 	*root = NULL;
 	return NULL;
